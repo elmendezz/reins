@@ -1,0 +1,49 @@
+name: Build Reins IPA
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Build IPA
+        run: flutter build ipa --release --no-codesign
+      - name: Prepare IPA
+        id: ipa
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          VERSION_NAME="${VERSION%%+*}"
+          BUILD_NUMBER="${VERSION#*+}"
+          IPA=$(find build/ios/ipa -name "*.ipa" -type f | head -n 1)
+          if [ -z "$IPA" ]; then
+            echo "No IPA was generated."
+            exit 1
+          fi
+          NAME="Reins-${VERSION_NAME}-build-${BUILD_NUMBER}.ipa"
+          cp "$IPA" "build/$NAME"
+          echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "ipa=build/$NAME" >> "$GITHUB_OUTPUT"
+      - name: Create Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "ios-v${{ steps.ipa.outputs.version }}-build-${{ steps.ipa.outputs.build }}"
+          name: "Reins iOS ${{ steps.ipa.outputs.version }} (Build ${{ steps.ipa.outputs.build }})"
+          prerelease: true
+          generate_release_notes: true
+          files: ${{ steps.ipa.outputs.ipa }}
