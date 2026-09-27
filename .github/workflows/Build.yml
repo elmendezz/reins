@@ -24,58 +24,69 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Show Flutter and Dart versions
-        run: |
-          flutter --version
-          dart --version
-
-      - name: Upgrade google_fonts
-        run: |
-          flutter pub add google_fonts:^6.3.0
+      - name: Show Flutter version
+        run: flutter --version
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Clean Flutter
+      - name: Clean project
         run: flutter clean
 
       - name: Get dependencies again
         run: flutter pub get
 
-      - name: Build unsigned IPA
+      - name: Build iOS
         run: |
-          flutter build ipa \
+          flutter build ios \
             --release \
             --no-codesign
 
-      - name: Prepare IPA
-        id: ipa
+      - name: Create unsigned IPA
+        run: |
+          mkdir -p build/ios/ipa
+
+          cd build/ios/iphoneos
+
+          if [ ! -d "Runner.app" ]; then
+            echo "ERROR: Runner.app was not generated."
+            exit 1
+          fi
+
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+
+          zip -r ../ipa/Reins.ipa Payload
+
+      - name: Prepare release
+        id: release
         shell: bash
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
           VERSION_NAME="${VERSION%%+*}"
           BUILD_NUMBER="${VERSION#*+}"
 
-          IPA=$(find build/ios/ipa -name "*.ipa" -type f | head -n 1)
+          IPA="build/ios/ipa/Reins.ipa"
 
-          if [ -z "$IPA" ]; then
-            echo "ERROR: No IPA was generated."
+          if [ ! -f "$IPA" ]; then
+            echo "ERROR: IPA was not generated."
+            find build/ios -maxdepth 4 -type f -print || true
             exit 1
           fi
 
           NAME="Reins-${VERSION_NAME}-build-${BUILD_NUMBER}.ipa"
 
-          cp "$IPA" "build/$NAME"
+          mv "$IPA" "build/ios/ipa/$NAME"
 
           echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "ipa=build/$NAME" >> "$GITHUB_OUTPUT"
+          echo "ipa=build/ios/ipa/$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Pre-release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "ios-v${{ steps.ipa.outputs.version }}-build-${{ steps.ipa.outputs.build }}"
-          name: "Reins iOS ${{ steps.ipa.outputs.version }} (Build ${{ steps.ipa.outputs.build }})"
+          tag_name: "ios-v${{ steps.release.outputs.version }}-build-${{ steps.release.outputs.build }}"
+          name: "Reins iOS ${{ steps.release.outputs.version }} (Build ${{ steps.release.outputs.build }})"
           prerelease: true
           generate_release_notes: true
-          files: ${{ steps.ipa.outputs.ipa }}
+          files: ${{ steps.release.outputs.ipa }}
