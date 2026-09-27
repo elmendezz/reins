@@ -1,27 +1,53 @@
 name: Build Reins IPA
+
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+
 permissions:
   contents: write
+
 jobs:
   build-ios:
-    name: Build iOS IPA
+    name: Build Reins IPA
     runs-on: macos-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      - name: Show Flutter and Dart versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Upgrade google_fonts
+        run: |
+          flutter pub add google_fonts:^6.3.0
+
       - name: Get dependencies
         run: flutter pub get
-      - name: Build IPA
-        run: flutter build ipa --release --no-codesign
+
+      - name: Clean Flutter
+        run: flutter clean
+
+      - name: Get dependencies again
+        run: flutter pub get
+
+      - name: Build unsigned IPA
+        run: |
+          flutter build ipa \
+            --release \
+            --no-codesign
+
       - name: Prepare IPA
         id: ipa
         shell: bash
@@ -29,17 +55,23 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
           VERSION_NAME="${VERSION%%+*}"
           BUILD_NUMBER="${VERSION#*+}"
+
           IPA=$(find build/ios/ipa -name "*.ipa" -type f | head -n 1)
+
           if [ -z "$IPA" ]; then
-            echo "No IPA was generated."
+            echo "ERROR: No IPA was generated."
             exit 1
           fi
+
           NAME="Reins-${VERSION_NAME}-build-${BUILD_NUMBER}.ipa"
+
           cp "$IPA" "build/$NAME"
+
           echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "ipa=build/$NAME" >> "$GITHUB_OUTPUT"
-      - name: Create Pre-release
+
+      - name: Create GitHub Pre-release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "ios-v${{ steps.ipa.outputs.version }}-build-${{ steps.ipa.outputs.build }}"
